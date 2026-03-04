@@ -1,0 +1,237 @@
+PrimaryActorTick.bCanEverTick#include "MorosBoss.h"
+#include "Kismet/GameplayStatics.h"
+#include "GameFramework/CharacterMovementComponent.h"
+
+AMorosBoss::AMorosBoss()
+{
+    PrimaryActorTick.bCanEverTick = true;
+}
+
+void AMorosBoss::BeginPlay()
+{
+    Super::BeginPlay();
+    PlayerPawn = UGameplayStatics::GetPlayerPawn(GetWorld(), 0);
+}
+
+void AMorosBoss::AnalyzePlayer()
+{
+    if (!PlayerPawn) return;
+
+    float Distance = FVector::Dist(GetActorLocation(), PlayerPawn->GetActorLocation());
+
+    if (Distance < 800.f && !bRage)#pragma once
+#include "CoreMinimal.h"
+#include "GameFramework/Character.h"
+#include "MorosBoss.generated.h"
+
+UCLASS()
+class HORRORGAME_API AMorosBoss : public ACharacter
+{
+    GENERATED_BODY()
+
+public:
+    AMorosBoss();
+    virtual void Tick(float DeltaTime) override;
+
+protected:
+    virtual void BeginPlay() override;
+
+private:
+    void AnalyzePlayer();
+    void EnterRageMode();
+    void TeleportBehindPlayer();
+
+    APawn* PlayerPawn;
+
+    float RageSpeed = 1100.f;
+    bool bRage = false;
+};#include "HorrorCharacter.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "Kismet/GameplayStatics.h"
+#include "DrawDebugHelpers.h"
+
+AHorrorCharacter::AHorrorCharacter()
+{
+    PrimaryActorTick.bCanEverTick = true;
+
+    Camera = CreateDefaultSubobject<UCameraComponent>("Camera");
+    Camera->SetupAttachment(GetRootComponent());
+    Camera->bUsePawnControlRotation = true;
+
+    Flashlight = CreateDefaultSubobject<USpotLightComponent>("Flashlight");
+    Flashlight->SetupAttachment(Camera);
+    Flashlight->Intensity = 6000.f;
+    Flashlight->bVisible = false;
+}
+
+void AHorrorCharacter::BeginPlay()
+{
+    Super::BeginPlay();
+    CurrentStamina = MaxStamina;
+    CurrentBattery = MaxBattery;
+}
+
+void AHorrorCharacter::MoveForward(float Value)
+{
+    AddMovementInput(GetActorForwardVector(), Value);
+}
+
+void AHorrorCharacter::MoveRight(float Value)
+{
+    AddMovementInput(GetActorRightVector(), Value);
+}
+
+void AHorrorCharacter::StartSprint()
+{
+    if (CurrentStamina > 0)
+    {
+        bIsSprinting = true;
+        GetCharacterMovement()->MaxWalkSpeed = SprintSpeed;
+    }
+}
+
+void AHorrorCharacter::StopSprint()
+{
+    bIsSprinting = false;
+    GetCharacterMovement()->MaxWalkSpeed = WalkSpeed;
+}
+
+void AHorrorCharacter::ToggleFlashlight()
+{
+    if (CurrentBattery > 0)
+        Flashlight->ToggleVisibility();
+}
+
+void AHorrorCharacter::Interact()
+{
+    FVector Start = Camera->GetComponentLocation();
+    FVector End = Start + (Camera->GetForwardVector() * 300.f);
+
+    FHitResult Hit;
+    if (GetWorld()->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility))
+    {
+        if (Hit.GetActor())
+            Hit.GetActor()->Tags.Add("Interacted");
+    }
+}
+
+void AHorrorCharacter::Tick(float DeltaTime)
+{
+    Super::Tick(DeltaTime);
+
+    if (bIsSprinting)
+    {
+        CurrentStamina -= 20.f * DeltaTime;
+        BehaviorData.SprintUsage += DeltaTime;
+        if (CurrentStamina <= 0)
+            StopSprint();
+    }
+    else
+        CurrentStamina = FMath::Clamp(CurrentStamina + 10.f * DeltaTime, 0.f, MaxStamina);
+
+    if (Flashlight->IsVisible())
+    {
+        CurrentBattery -= 5.f * DeltaTime;
+        BehaviorData.FlashlightUsage += DeltaTime;
+        if (CurrentBattery <= 0)
+            Flashlight->SetVisibility(false);
+    }
+}
+
+void AHorrorCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
+{
+    PlayerInputComponent->BindAxis("MoveForward", this, &AHorrorCharacter::MoveForward);
+    PlayerInputComponent->BindAxis("MoveRight", this, &AHorrorCharacter::MoveRight);
+    PlayerInputComponent->BindAxis("Turn", this, &APawn::AddControllerYawInput);
+    PlayerInputComponent->BindAxis("LookUp", this, &APawn::AddControllerPitchInput);
+
+    PlayerInputComponent->BindAction("Sprint", IE_Pressed, this, &AHorrorCharacter::StartSprint);
+    PlayerInputComponent->BindAction("Sprint", IE_Released, this, &AHorrorCharacter::StopSprint);
+    PlayerInputComponent->BindAction("Flashlight", IE_Pressed, this, &AHorrorCharacter::ToggleFlashlight);
+    PlayerInputComponent->BindAction("Interact", IE_Pressed, this, &AHorrorCharacter::Interact);
+}BehaviorData.SprintUsageBehaviorData.FlashlightUsage#pragma once
+#include "CoreMinimal.h"
+#include "GameFramework/Character.h"
+#include "Camera/CameraComponent.h"
+#include "Components/SpotLightComponent.h"
+#include "HorrorCharacter.generated.h"
+
+USTRUCT(BlueprintType)
+struct FPlayerBehaviorData
+{
+    GENERATED_BODY()
+
+    float SprintUsage = 0.f;
+    float FlashlightUsage = 0.f;
+    float HideTime = 0.f;
+};
+
+UCLASS()
+class HORRORGAME_API AHorrorCharacter : public ACharacter
+{
+    GENERATED_BODY()
+
+public:
+    AHorrorCharacter();
+    virtual void Tick(float DeltaTime) override;
+
+    FPlayerBehaviorData BehaviorData;
+
+protected:
+    virtual void BeginPlay() override;
+    virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
+
+private:
+    void MoveForward(float Value);
+    void MoveRight(float Value);
+    void StartSprint();
+    void StopSprint();
+    void ToggleFlashlight();
+    void Interact();
+
+    UPROPERTY()
+    UCameraComponent* Camera;
+
+    UPROPERTY()
+    USpotLightComponent* Flashlight;
+
+    float WalkSpeed = 400.f;
+    float SprintSpeed = 800.f;
+
+    float MaxStamina = 100.f;
+    float CurrentStamina;
+
+    float MaxBattery = 100.f;
+    float CurrentBattery;
+
+    bool bIsSprinting = false;
+
+    TArray<FString> Inventory;
+};Source/HorrorGame/
+ ├── HorrorCharacter.h / .cpp
+ ├── MorosBoss.h / .cpp
+ ├── HorrorSaveGame.h
+ ├── DoorActor.h
+ ├── JumpscareTrigger.h
+#include "MorosBoss.h"
+#include "Kismet/GameplayStatics.h"
+#include "GameFramework/CharacterMovementComponent.h"
+
+AMorosBoss::AMorosBoss()
+{
+    PrimaryActorTick.bCanEverTick = true;
+}
+
+void AMorosBoss::BeginPlay()
+{
+    Super::BeginPlay();
+    PlayerPawn = UGameplayStatics::GetPlayerPawn(GetWorld(), 0);
+}
+
+void AMorosBoss::AnalyzePlayer()
+{
+    if (!PlayerPawn) return;
+
+    float Distance = FVector::Dist(GetActorLocation(), PlayerPawn->GetActorLocation());
+
+    if (Distance < 800.f && !bRage)
